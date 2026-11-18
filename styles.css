@@ -192,6 +192,11 @@ body > main {
   outline: 3px solid var(--mark);
   outline-offset: 2px;
 }
+#campus-stores [data-slip]:focus {
+  outline: 2px solid var(--mark);
+  outline-offset: -1px;
+  border-radius: 4px;
+}
 #campus-stores .shell {
   display: grid;
   grid-template-columns: 155px minmax(0, 1fr);

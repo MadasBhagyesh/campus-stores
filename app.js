@@ -106,6 +106,7 @@
       },
     ],
     notes: [],
+    followUps: [],
     editing: false,
     onlyOpen: true,
     notice: "Sample shift · All records are fictional.",
@@ -284,14 +285,15 @@
       .slice()
       .reverse();
     if (!shown.length) html += "<p>No outstanding slips.</p>";
-    for (const l of shown)
-      html += row(
+    for (const l of shown) {
+      html += `<div data-slip="${l.num}" tabindex="-1">${row(
         "L-" + l.num + " · " + l.asset,
         l.req + " · " + l.who + " · Due " + l.due,
         l.back
           ? badge("Returned")
           : btn("Record return", "return", String(l.num)),
-      );
+      )}</div>`;
+    }
     return html;
   }
   function deskbook() {
@@ -299,6 +301,7 @@
       "Desk book",
       "Messages from clubs and notes for the next shift",
     );
+    html += followUpSection();
     const entries = [
       [
         "Friday · 3:20 pm",
@@ -332,6 +335,45 @@
       html +
       '<form data-note><div class="form"><label class="full"><span>Note for the next shift</span><textarea name="note" rows="2" maxlength="400" required></textarea></label></div><button type="submit">Add handover note</button></form>'
     );
+  }
+  function followUpSection() {
+    const cards = s.followUps.map((followUp) => {
+      const loan = s.loans.find((l) => l.num === followUp.slip);
+      const asset = getAsset(loan.asset);
+      const request = getReq(loan.req);
+      return `<article class="record" data-follow-up="${loan.num}">
+        <h3>${esc(asset.id + " · " + asset.type)}</h3>
+        <p>${esc(request.club + " · " + request.id + " · L-" + loan.num)}</p>
+        <p>Expected from <strong>${esc(followUp.returner)}</strong> at ${esc(followUp.expected)}</p>
+        <div class="buttons">
+          ${badge(loan.back ? "Resolved" : "Awaiting return", loan.back)}
+          ${btn("View slip L-" + loan.num, "view-slip", loan.num)}
+        </div>
+      </article>`;
+    }).join("");
+    const available = s.loans.filter(
+      (loan) => !loan.back && !s.followUps.some((entry) => entry.slip === loan.num),
+    );
+    if (!cards && !available.length) return "";
+    const options = available.map((loan) => [
+      loan.num,
+      "L-" + loan.num + " · " + loan.asset + " · " + getAsset(loan.asset).type +
+        " · " + getReq(loan.req).club,
+    ]);
+    return `<section aria-labelledby="return-follow-ups">
+      <h2 id="return-follow-ups">Return follow-ups</h2>
+      ${cards}
+      ${available.length ? `<form data-follow-up-form>
+        <div class="form">
+          <label><span>Outstanding slip</span><select name="slip" required>
+            <option value="">Select…</option>${opts(options)}
+          </select></label>
+          <label><span>Expected returner</span><input name="returner" maxlength="80" required></label>
+          <label><span>Expected return time</span><input name="expected" maxlength="80" required></label>
+        </div>
+        <button type="submit">Save return follow-up</button>
+      </form>` : ""}
+    </section>`;
   }
   const screens = {
     Requests: requestPage,
@@ -406,6 +448,16 @@
       case "scope":
         s.onlyOpen = v === "0";
         break;
+      case "view-slip": {
+        const loan = s.loans.find((l) => l.num === Number(v));
+        if (!loan) return;
+        s.tab = "Loan register";
+        s.editing = false;
+        s.onlyOpen = !loan.back;
+        commit();
+        q('[data-slip="' + loan.num + '"]').focus();
+        return;
+      }
       case "return": {
         const l = s.loans.find((l) => l.num === Number(v));
         if (!l || l.back) return;
@@ -426,6 +478,24 @@
     e.preventDefault();
     const f = e.target;
     const form = new FormData(f);
+    if (f.matches("[data-follow-up-form]")) {
+      const slip = Number(form.get("slip"));
+      const returner = String(form.get("returner")).trim();
+      const expected = String(form.get("expected")).trim();
+      if (!returner || !expected) {
+        q("[data-status]").textContent = "Enter the expected returner and return time.";
+        return;
+      }
+      if (!s.loans.some((loan) => loan.num === slip && !loan.back) ||
+          s.followUps.some((entry) => entry.slip === slip)) {
+        q("[data-status]").textContent = "Choose an outstanding slip without a follow-up.";
+        return;
+      }
+      s.followUps.push({ slip, returner, expected });
+      commit("Return follow-up saved for slip L-" + slip + ".");
+      q('[data-follow-up="' + slip + '"] button').focus();
+      return;
+    }
     if (f.matches("[data-note]")) {
       const text = String(form.get("note")).trim();
       if (!text) return;
@@ -484,6 +554,10 @@
       ...d,
       loans: d.loans.map((l) => ({ ...l })),
       notes: d.notes.map((n) => ({ ...n })),
+      followUps: Array.isArray(d.followUps) ? d.followUps.filter(
+        (entry) => entry && d.loans.some((loan) => loan.num === entry.slip) &&
+          typeof entry.returner === "string" && typeof entry.expected === "string",
+      ) : [],
     };
     paint();
   }
